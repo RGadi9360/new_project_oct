@@ -1,0 +1,21 @@
+
+global:
+  resolve_timeout: 5m
+
+templates:
+  - "./teams.tmpl"
+
+route:
+   group_by: ['critical', 'severity']
+   group_interval: 1m
+   resolve_timeout: 5m
+   routes:
+    - receiver: "teams-notifications"
+      matchers:
+        - severity="critical"
+receivers:
+  - name: "teams-notifications"
+    webhook_configs:
+      - url: "url"
+        send_resolved: true
+        message: '{{ template "teams.message" . }}'
