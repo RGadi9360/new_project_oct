@@ -1,0 +1,1 @@
+curl -v -X POST http://localhost:8080/api/v2/alerts -H 'Content-Type: application/json' -d '[{"alert":"CPU0 Usaglert Clone","expr":"DefaultAlert","annotations":{"title":"CPU0 Usage Alert Clone","description":"source::/var/log/telegraf/telegraf.log|host::ba5fa9414c2e|telegraf-2"},"labels":{"severity":"critical"}}]'
