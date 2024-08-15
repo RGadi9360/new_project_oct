@@ -1,0 +1,170 @@
+#!/usr/bin/env groovy
+
+// Scripted pipeline
+ 
+def config = [
+    "mailTo": "nineslingn@aetna.com",  // Replace with development team distribution list
+    "dockerImageTag": "2.14-stable" // See https://wikiprod.aetna.com/x/xYTiBQ for a complete list of image tags
+]
+ 
+env.PLAYBOOK = "./playbooks/main.yml"
+ 
+env.ANSIBLE_NOCOLOR = "True"
+
+env.VERBOSE_LEVEL = env.VERBOSE_LEVEL ? env.VERBOSE_LEVEL : "1"
+ 
+//env.WINDOWS_GROUP = "windows1,windows2"      // Multiple inventory groups
+env.WINDOWS_GROUP = "all"                    // Inventory only contains Windows Server targets
+ 
+env.MACHINEAGENT_ACTION = "${env.MACHINEAGENT_ACTION}"
+env.MACHINEAGENT_ENVIRONMENT = "${env.MACHINEAGENT_ENVIRONMENT}"
+env.EXEC_ENV = "${env.EXEC_ENV}"
+env.CONTROLLER_HOST_NAME = "${env.CONTROLLER_HOST_NAME}"
+
+// Start: Added logic for Jenkins form variables
+switch(CONTROLLER_HOST_NAME) {
+  case "cvs-ent-prod-01.saas.appdynamics.com":
+    env.AGENT_ACCOUNT_NAME="cvs-ent-prod-01"
+    // env.CONTROLLER_SSL_ENABLE="true"
+    //env.CONTROLLER_ACCESS_KEY=
+    controller_key_id = "cvs-ent-prod-01-key"
+    break
+  case "cvs-ent-prod-02.saas.appdynamics.com":    
+    env.AGENT_ACCOUNT_NAME="cvs-ent-prod-02"
+    // env.CONTROLLER_SSL_ENABLE="true"
+    //env.CONTROLLER_ACCESS_KEY=
+    controller_key_id = "cvs-ent-prod-02-key"
+    break
+  case "cvs-ent-nonprod-01.saas.appdynamics.com":    
+    env.AGENT_ACCOUNT_NAME="cvs-ent-nonprod-01"
+    // env.CONTROLLER_SSL_ENABLE="true"
+    //env.CONTROLLER_ACCESS_KEY=
+    controller_key_id = "cvs-ent-nonprod-01-key"
+    break    
+  case "cvs-ent-nonprod-02.saas.appdynamics.com":    
+    env.AGENT_ACCOUNT_NAME="cvs-ent-nonprod-02"
+    // env.CONTROLLER_SSL_ENABLE="true"
+    //env.CONTROLLER_ACCESS_KEY=
+    controller_key_id = "cvs-ent-nonprod-02-key"
+    break 
+}
+
+env.ANSIBLE_FORKS=30
+
+if (EXEC_ENV == "HCB") {
+  
+    echo "HCB"
+    NODE_ENV = "Automation-Engineering-HCB"
+    env.become_user = 'AETH\\s011338'
+    //env.PROXY_PORT="9119"
+    env.PROXY_HOST="proxy.aetna.com"
+    if (env.WINDOWS_GROUP) 
+    {
+      echo "Win_CRED_HCB"
+      WIN_CRED = "toweragent_windows_hcb_aeth"              // Set value to the ID of your Jenkins credential for HCB
+    }
+}
+else if (EXEC_ENV == "hCVS") {
+    NODE_ENV = "Automation-Engineering-PSSRetail"
+    //env.PROXY_PORT="9119"
+    env.PROXY_HOST="riproxies.cvshealth.com"
+    if (env.WINDOWS_GROUP) 
+    {
+      echo "Win_CRED_CVS"
+      WIN_CRED = "toweragent_windows_hcvs_corp"            // Set value to the ID of your Jenkins credential for hCVS Corp
+    }
+}
+else if (EXEC_ENV == "AHM") {
+    NODE_ENV = "Automation-Engineering-PSSRetail"
+    if (env.WINDOWS_GROUP) 
+    {
+      echo "Win_CRED_CVS"
+      WIN_CRED = "toweragent_windows_hcvs_corp"            // Set value to the ID of your Jenkins credential for hCVS Corp
+    }
+}
+// Set execution node and Windows Server credential to a static value
+// Ansible shared Jenkins library from SCM
+library(
+  identifier: 'aap_actor_jenkins@stable',
+  retriever: modernSCM(
+    [
+      $class: 'GitSCMSource',
+      remote: 'https://github.aetna.com/AnsibleAutomationPlatform/aap_actor_jenkins'
+    ]
+  )
+)
+ 
+if (binding.hasVariable('INVENTORY_CONTENT')) {
+    // set job name and description
+    if (INVENTORY_CONTENTS.isEmpty()) {
+      currentBuild.displayName = "#${BUILD_NUMBER} ${env.HOST}"
+    } else {
+      currentBuild.displayName = "#${BUILD_NUMBER} inventory"
+    }
+}
+ 
+if (env.CLOUDBEES == "true") {
+    properties([buildDiscarder(logRotator(numToKeepStr: '30')), [$class: 'JobRestrictionProperty']])
+} else {
+    properties([buildDiscarder(logRotator(numToKeepStr: '30')), gitLabConnection('gitw'), [$class: 'JobRestrictionProperty']])
+}
+currentBuild.result = 'SUCCESS'  // status in Jenkins
+
+// Color output is hard to read/parse in jenkins console: 
+ env.ANSIBLE_NOCOLOR = "True"
+
+// color output
+ansiColor('xterm') {
+  node(NODE_ENV) {
+ 
+    stage("Checkout") {
+      // clean up workspace at the end
+
+      cleanWs deleteDirs: true
+      checkout scm
+    }
+ 
+    try {
+      stage("Build") {
+        runPlaybook(config)
+      }
+    } catch (e) {
+      echo "build failed"
+      // If there was an exception thrown, the build failed
+      currentBuild.result = 'FAILURE'  // status in Jenkins
+      // send mail notification if mailTo config is defined
+
+      throw e
+    } finally {
+      cleanWs notFailBuild: true // always clean workspace
+    }
+ 
+  } // node
+} // ansiColor
+ 
+def runPlaybook(Map config) {
+  def credBindings = [
+    file(credentialsId: 'toweragent_linux', variable: 'SSH_PRIVATE_KEY_FILE'),
+// 	file(credentialsId: vault_password, variable: 'ANSIBLE_VAULT_PASSWORD_FILE'),
+    string(credentialsId: 'cvs_enterprise_splunk_token', variable: 'SPLUNK_AUTHTOKEN')
+  ]
+
+  if (binding.hasVariable('WIN_CRED')) {
+    credBindings.add(usernamePassword(credentialsId: WIN_CRED, usernameVariable: 'WINRM_USER', passwordVariable: 'WINRM_PASSWORD'))
+  }
+ 
+  if (binding.hasVariable('controller_key_id')) {
+    credBindings.add( string(credentialsId: "$controller_key_id", variable: 'CONTROLLER_ACCESS_KEY') )
+  }
+
+  withCredentials(credBindings) {
+    try {
+      // playbook method is defined in the jenkins-plugin-ansible/vars/playbook.groovy file
+      playbook(config) // pass in config from the top of this Jenkinsfile
+    } catch (e) {
+      currentBuild.result = 'FAILURE'  // status in Jenkins
+      echo "Ansible playbook failed"
+      throw e
+    }
+  }
+}
