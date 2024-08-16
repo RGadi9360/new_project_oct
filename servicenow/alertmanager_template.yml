@@ -1,0 +1,40 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  receiver: 'default-receiver'
+
+  routes:
+    - receiver: 'servicenow-webhook'
+      match:
+        severity: critical
+
+receivers:
+  - name: 'default-receiver'
+    webhook_configs:
+      - url: 'http://localhost:9093/api/v1/alerts'
+        send_resolved: true
+        max_alerts: 0
+  - name: 'servicenow-webhook'
+    webhook_configs:
+      - url: 'https://dev211036.service-now.com/api/now/table/incident'
+        send_resolved: true
+        http_config:
+          basic_auth:
+            username: 'admin'
+            password: 'uyN2ZRhQz%6@'
+        max_alerts: 0
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'dev', 'instance']
+
+templates:
+  - './alert_template.tmpl'

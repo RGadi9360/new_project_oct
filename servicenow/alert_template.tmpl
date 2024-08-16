@@ -1,0 +1,10 @@
+{{ define "servicenow.message" }}
+{
+  "short_description": "{{ .CommonLabels.alertname }} - {{ .CommonLabels.severity }}",
+  "description": "Alert: {{ .CommonAnnotations.summary }}\n\nDetails:\n{{ range .Alerts }}- {{ .Annotations.description }}\n{{ end }}",
+  "priority": "{{ if eq .CommonLabels.severity "critical" }}1{{ else if eq .CommonLabels.severity "warning" }}2{{ else }}3{{ end }}",
+  "category": "Network",
+  "caller_id": "Alertmanager",
+  "assignment_group": "Network Support"
+}
+{{ end }}
