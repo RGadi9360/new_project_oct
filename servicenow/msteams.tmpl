@@ -1,0 +1,74 @@
+curl -v -X POST http://157.121.227.185:8080/v2/alerts -H 'Content-Type: application/json' -d '[{"alert":"CPU0 Usage Alert Clone","expr":"critical","annotations":{"title":"CPU0 Usage Alert Clone","description":"High CPU usage detected","source":"telegraf-2"},"labels":{"severity":"critical","alertname":"CPU_Usage_Alert","instance":"server1"}}]'
+
+
+=========================================================
+
+/Received payload from Alertmanager://
+{
+    "receiver": "splunk_critical",
+    "status": "firing",
+    "alerts": [
+        {
+            "status": "firing",
+            "labels": {
+                "severity": "critical"
+            },
+            "annotations": {
+                "description": "source::/var/log/telegraf/telegraf.log|host::ba5fa9414c2e|telegraf-2",
+                "title": "CPU0 Usage Alert Clone"
+            },
+            "startsAt": "2024-08-23T16:48:52.300957091-04:00",
+            "endsAt": "0001-01-01T00:00:00Z",
+            "generatorURL": "",
+            "fingerprint": "7a04f652d0a42a9b"
+        }
+    ],
+    "groupLabels": {
+        "severity": "critical"
+    },
+    "commonLabels": {
+        "severity": "critical"
+    },
+    "commonAnnotations": {
+        "description": "source::/var/log/telegraf/telegraf.log|host::ba5fa9414c2e|telegraf-2",
+        "title": "CPU0 Usage Alert Clone"
+    },
+    "externalURL": "http://xappdynesw1q.aetna.com:80",
+    "version": "4",
+    "groupKey": "{}/{severity=\"critical\"}:{severity=\"critical\"}",
+    "truncatedAlerts": 0
+}
+
+=================================
+
+ cat msteams.tmpl;echo
+{{ define "msteams.default.text" }}
+{
+  "@type": "MessageCard",
+  "@context": "http://schema.org/extensions",
+  "themeColor": "0078D7",
+  "summary": "Alert Notification",
+  "sections": [{
+    "activityTitle": "Alert Details",
+    "facts": [
+      {
+        "name": "Alert Name:",
+        "value": "{{ .CommonAnnotations.title }}<br/>"
+      },
+      {
+        "name": "Status:",
+        "value": "{{ .Status }}<br/>"
+      },
+      {
+        "name": "Severity:",
+        "value": "{{ .CommonLabels.severity }}<br/>"
+      },
+      {
+        "name": "Description:",
+        "value": "{{ .CommonAnnotations.description }}<br/>"
+      }
+    ],
+    "markdown": true
+  }]
+}
+{{ end }}
