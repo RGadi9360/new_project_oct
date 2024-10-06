@@ -8,3 +8,25 @@
   "assignment_group": "Network Support"
 }
 {{ end }}
+
+{{ define "msteams.custom.title" }}
+[{{ .Status | toUpper }}] - {{ .CommonLabels.alertname }} | Severity: {{ .CommonLabels.severity }}
+{{ end }}
+
+{{ define "msteams.custom.summary" }}
+Alert: {{ .CommonLabels.alertname }}
+Triggered by: {{ .Alerts.Firing | len }} instance(s)
+{{ end }}
+
+{{ define "msteams.custom.text" }}
+**Alert Details:**
+**Alert Name:** {{ .CommonLabels.alertname }}
+**status:** {{ .status }}
+**Severity:** {{ .CommonLabels.severity }}
+**Description:** {{ .CommonAnnotations.description }}
+**Instance:** {{ range .Alerts }}{{ .Labels.instance }}{{ end }}
+
+**Additional Fields:**
+**Expression:** {{ range .Alerts }}{{ .Annotations.expr }}{{ end }}
+**Source:** {{ range .Alerts }}{{ .Annotations.source }}{{ end }}
+{{ end }}
