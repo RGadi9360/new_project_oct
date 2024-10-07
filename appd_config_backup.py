@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import xml.etree.ElementTree as ET
 
 class AppDConfigurationBackup:
 
@@ -13,7 +14,14 @@ class AppDConfigurationBackup:
         url = f"{self.base_url}/applications"
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()  # Raise an error for bad status codes
-        return response.json()['application']
+        root = ET.fromstring(response.content)
+        applications = []
+        for application in root.findall('application'):
+            app_id = application.find('id').text
+            app_name = application.find('name').text
+            applications.append({'id': app_id, 'name': app_name})
+    
+        return applications
 
     def fetch_health_rules(self, app_id):
         """Fetch health rules for the given application."""
