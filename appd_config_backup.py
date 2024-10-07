@@ -1,616 +1,102 @@
-from sys import exit
+import os
 import json
 import requests
-import os
-import sys
-from pathlib import Path
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
-from jinja2.exceptions import TemplateNotFound
 
-BASE_PAYLOAD_TEMPLATE = {
-    "name": None,  # Placeholder for health_rule_name
-    "enabled": "true",
-    "useDataFromLastNMinutes": 30,
-    "waitTimeAfterViolation": 30,
-    "scheduleName": "Always",
-    "affects": {
-        "affectedEntityType": "DATABASES",
-        "databaseType": None,  # Placeholder for database type
-        "affectedDatabases": {
-            "databaseScope": None  # Placeholder for database scope
-        }
-    },
-    "evalCriterias": {}
-}
+class AppDConfigurationBackup:
 
-HEADERS_TEMPLATE = {
-    'Authorization': 'Bearer {token}',
-    'Accept': 'application/json',
-    'Content-Type': 'application/json'
-}
+    def __init__(self, base_url, headers):
+        self.base_url = base_url
+        self.headers = headers
 
-PARAMS_TEMPLATE = {
-    "business_name": "{{business_name}}",
-    "application_name": "{{application_name}}",
-    "appd_env": "{{appd_env}}",
-    "user_email": "{{user_email}}"
-}
-
-TEMPLATE_ENV = Environment(
-    loader=FileSystemLoader(
-        searchpath=Path(__file__).parent.parent.joinpath("templates"),
-    ),
-    undefined=StrictUndefined,
-    keep_trailing_newline=True,
-    lstrip_blocks=True,
-    trim_blocks=True,
-)
-
-def render_template_json(template, params):
-    """
-    Accepts a template filename and parameters to pass to the template
-    when rendering. Produces a rendered template as a string.
-    
-    """
-    try:
-        appd_obj = TEMPLATE_ENV.get_template(template).render(params)
-        appd_obj_json = json.loads(appd_obj)
-        json_string = json.dumps(appd_obj_json, indent=2)
-        return json_string
-
-    except TemplateNotFound as e:
-        exit(f"{e.__class__.__name__} : templates/{e}")
-
-def post_request(url, headers, payload):
-    try:
-        response = requests.post(
-                url= url,
-                headers=headers,
-                data=payload,
-        )
-        print(f"*******71****: {url} {payload}")
-        if response.status_code != 201:
-            response_text = json.loads(response.text.encode("utf8"))
-            print(
-                f"Status code {response.status_code} returned, {response_text['message']}\n"
-                )
-        else:
-            print(
-                f"Successfully created action, response code: {response.status_code}\n"
-                )
-            data = response.json()
-
-            return data
-    except Exception as e:
-        sys.exit(
-            f"Error  for {url} : {e}, response status code:{response.status_code} response text:{response.text}\n"
-        )
-
-def databases_generator(databases):
-    """Generate the specific database list."""
-    if databases is None:
-        return []
-
-    db_list_raw = list(filter(None, databases.split(",")))
-
-    if len(db_list_raw) <= 0:
-        return []
-
-    db_list = [
-        {"serverName": database.strip(), "collectorConfigName": database.strip()}
-        for database in db_list_raw
-    ]
-
-    return db_list
-
-
-def get_db_calls_per_min(data=None):
-    """Template for DB calls per min."""
-    new_data = data.copy()
-    new_data["name"] += " - DB Calls Per Min"
-    new_data["evalCriterias"] = {
-        "criticalCriteria": {
-            "conditionAggregationType": "ALL",
-            "conditionExpression": None,
-            "conditions": [
-                {
-                    "name": "High Number of Connections",
-                    "shortName": "A",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|KPI|Number of Connections",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "SPECIFIC_TYPE",
-                            "compareCondition": "GREATER_THAN_SPECIFIC_VALUE",
-                            "compareValue": 200000,
-                        },
-                    },
-                    "triggerEnabled": "true",
-                    "minimumTriggers": 15,
-                },
-                {
-                    "name": "Number of Connections above 4 standard deviations of the default baseline",
-                    "shortName": "B",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|KPI|Number of Connections",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "BASELINE_TYPE",
-                            "baselineCondition": "GREATER_THAN_BASELINE",
-                            "baselineName": "Default Baseline",
-                            "compareValue": 4,
-                            "baselineUnit": "STANDARD_DEVIATIONS",
-                        },
-                    },
-                    "triggerEnabled": "false",
-                    "minimumTriggers": 15,
-                },
-            ],
-            "evalMatchingCriteria": None,
-        },
-        "warningCriteria": None,
-    }
-    return new_data
-
-def get_db_conn_per_min(data=None):
-    """Template for DB connections per min."""
-    new_data = data.copy()
-    new_data["name"] += " - DB Connections Per Minute"
-    new_data["evalCriterias"] = {
-        "criticalCriteria": {
-            "conditionAggregationType": "ALL",
-            "conditionExpression": None,
-            "conditions": [
-                {
-                    "name": "High Number of Connections",
-                    "shortName": "A",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|KPI|Number of Connections",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "SPECIFIC_TYPE",
-                            "compareCondition": "GREATER_THAN_SPECIFIC_VALUE",
-                            "compareValue": 30,
-                        },
-                    },
-                    "triggerEnabled": "true",
-                    "minimumTriggers": 10,
-                },
-                {
-                    "name": "Number of Connections above 4 standard deviations of the default baseline",
-                    "shortName": "B",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|KPI|Number of Connections",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "BASELINE_TYPE",
-                            "baselineCondition": "GREATER_THAN_BASELINE",
-                            "baselineName": "Default Baseline",
-                            "compareValue": 3,
-                            "baselineUnit": "STANDARD_DEVIATIONS",
-                        },
-                    },
-                    "triggerEnabled": "false",
-                    "minimumTriggers": 10,
-                },
-            ],
-            "evalMatchingCriteria": None,
-        },
-        "warningCriteria": None,
-    }
-    return new_data
-
-def get_db_exec_time(data=None):
-    """Template for DB time spent in executions."""
-    new_data = data.copy()
-    new_data["name"] += " - DB Time Spent in Executions"
-    new_data["evalCriterias"] = {
-        "criticalCriteria": {
-            "conditionAggregationType": "ALL",
-            "conditionExpression": None,
-            "conditions": [
-                {
-                    "name": "Query Execution Time",
-                    "shortName": "A",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|KPI|Time Spent in Executions (s)",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "SPECIFIC_TYPE",
-                            "compareCondition": "GREATER_THAN_SPECIFIC_VALUE",
-                            "compareValue": 3000,
-                        },
-                    },
-                    "triggerEnabled": "true",
-                    "minimumTriggers": 15,
-                },
-                {
-                    "name": "Condition 2",
-                    "shortName": "B",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|KPI|Time Spent in Executions (s)",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "BASELINE_TYPE",
-                            "baselineCondition": "GREATER_THAN_BASELINE",
-                            "baselineName": "Daily Trend - Last 30 days",
-                            "compareValue": 4,
-                            "baselineUnit": "STANDARD_DEVIATIONS",
-                        },
-                    },
-                    "triggerEnabled": "false",
-                    "minimumTriggers": 15,
-                },
-            ],
-            "evalMatchingCriteria": None,
-        },
-        "warningCriteria": None,
-    }
-    return new_data
-
-def get_gc_block(data=None):
-    """Template for DB gc current block receive time."""
-    new_data = data.copy()
-    new_data["name"] += " - DB gc current block receive time"
-    new_data["evalCriterias"] = {
-        "criticalCriteria": {
-            "conditionAggregationType": "ALL",
-            "conditionExpression": None,
-            "conditions": [
-                {
-                    "name": "gc current block receive time HIGH",
-                    "shortName": "A",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|Server Statistic|gc current block receive time",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "SPECIFIC_TYPE",
-                            "compareCondition": "GREATER_THAN_SPECIFIC_VALUE",
-                            "compareValue": 12000,
-                        },
-                    },
-                    "triggerEnabled": "true",
-                    "minimumTriggers": 15,
-                },
-                {
-                    "name": "Condition 2",
-                    "shortName": "B",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|Server Statistic|gc current block receive time",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "BASELINE_TYPE",
-                            "baselineCondition": "GREATER_THAN_BASELINE",
-                            "baselineName": "Default Baseline",
-                            "compareValue": 4,
-                            "baselineUnit": "STANDARD_DEVIATIONS",
-                        },
-                    },
-                    "triggerEnabled": "false",
-                    "minimumTriggers": 15,
-                },
-            ],
-            "evalMatchingCriteria": None,
-        },
-        "warningCriteria": None,
-    }
-    return new_data
-
-
-def get_connections(data=None):
-    """Template for DB connections."""
-    new_data = data.copy()
-    new_data["name"] += " - Drop in connections"
-    new_data["evalCriterias"] = {
-        "criticalCriteria": {
-            "conditionAggregationType": "ALL",
-            "conditionExpression": None,
-            "conditions": [
-                {
-                    "name": "Drop in connections",
-                    "shortName": "A",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|KPI|Number of Connections",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "SPECIFIC_TYPE",
-                            "compareCondition": "LESS_THAN_SPECIFIC_VALUE",
-                            "compareValue": 1,
-                        },
-                    },
-                    "triggerEnabled": "true",
-                    "minimumTriggers": 10,
-                }
-            ],
-            "evalMatchingCriteria": None,
-        },
-        "warningCriteria": None,
-    }
-    return new_data
-
-def get_availability(data=None):
-    """Template for DB availability."""
-    new_data = data.copy()
-    new_data["name"] += " - DBAvailablity"
-    new_data["evalCriterias"] = {
-        "criticalCriteria": {
-            "conditionAggregationType": "ALL",
-            "conditionExpression": None,
-            "conditions": [
-                {
-                    "name": "DBAvailablity",
-                    "shortName": "A",
-                    "evaluateToTrueOnNoData": "false",
-                    "evalDetail": {
-                        "evalDetailType": "SINGLE_METRIC",
-                        "metricAggregateFunction": "VALUE",
-                        "metricPath": "DB|KPI|DB Availability",
-                        "metricEvalDetail": {
-                            "metricEvalDetailType": "SPECIFIC_TYPE",
-                            "compareCondition": "LESS_THAN_SPECIFIC_VALUE",
-                            "compareValue": 1,
-                        },
-                    },
-                    "triggerEnabled": "true",
-                    "minimumTriggers": 10,
-                }
-            ],
-            "evalMatchingCriteria": None,
-        },
-        "warningCriteria": None,
-    }
-    return new_data
-
-class AppDPolicyActionBuilder:
-
-    def __init__( self, business_name, db_type, application_name, appd_env, databases, user_email, account_name, client_secret, client_id ):
-        """
-        Initializes the AppDPolicyActionBuilder with basic parameters for health rules and actions.
-        
-        :param business_name: Name of the business.
-        :param application_name: Name of the application in AppDynamics.
-        :param env: The environment (e.g., Production, Development).
-        :param tier: The application tier in AppDynamics.
-        :param user_email: The email address for action notifications.
-        """
-        self.business_name = business_name
-        self.db_type = db_type
-        self.application_name = application_name
-        self.appd_env = appd_env
-        self.databases = databases_generator(databases)
-        self.user_email = user_email
-        self.account_name = account_name
-        self.client_secret = client_secret
-        self.client_id = client_id
-        self.token= ""
-        self.headers = HEADERS_TEMPLATE
-        self.health_rules = []
-        self.policies = []
-        self.actions = []
-        self.base_url = f'https://abcd-ent-{appd_env.lower()}-01.saas.appdynamics.com/controller/'
-
-    def populate_params(self):
-
-        """Populate the PARAMS_TEMPLATE with actual values."""
-
-        populated_params = {
-            key: value.replace(f"{{{{{key.lower()}}}}}", str(getattr(self, key.lower())))
-            for key, value in PARAMS_TEMPLATE.items()
-        }
-        # Additional specific replacements if necessary
-        return populated_params
-    
-
-    def generate_access_token(self):
-
-        """Retrieve the access token using client credentials."""
-        base_url = f"https://abcd-ent-{self.appd_env.lower()}-01.saas.appdynamics.com/controller/"
-        url = f"{base_url}api/oauth/access_token"
-        payload = {
-            "grant_type": "client_credentials",
-            "client_id": f"{self.client_id}@{self.account_name}",
-            "client_secret": self.client_secret,
-        }
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-        }
-
-        response = requests.post(url, data=payload, headers=headers)
+    def fetch_applications(self):
+        """Fetch all applications and return their IDs and names."""
+        url = f"{self.base_url}/applications"
+        response = requests.get(url, headers=self.headers)
         response.raise_for_status()  # Raise an error for bad status codes
-        token_data = response.json()
-        self.token = token_data["access_token"]
-        self.headers = {k: v.format(token=self.token) for k, v in HEADERS_TEMPLATE.items()}
+        return response.json()['application']
 
-    def create_payload(self, health_rule_name):
-   
-        payload = BASE_PAYLOAD_TEMPLATE.copy()
-        payload["name"] = health_rule_name
-        payload["affects"]["databaseType"] = self.db_type
-        if len(self.databases) > 0:
-            payload["affects"]["affectedDatabases"]["databaseScope"] = "SPECIFIC_DATABASES"
-            payload["affects"]["affectedDatabases"]["databases"] = self.databases
+    def fetch_health_rules(self, app_id):
+        """Fetch health rules for the given application."""
+        url = f"{self.base_url}/alerting/rest/v1/applications/{app_id}/health-rules"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
+
+    def fetch_actions(self, app_id):
+        """Fetch actions for the given application."""
+        url = f"{self.base_url}/alerting/rest/v1/applications/{app_id}/actions"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
+
+    def fetch_policies(self, app_id):
+        """Fetch policies for the given application."""
+        url = f"{self.base_url}/alerting/rest/v1/applications/{app_id}/policies"
+        response = requests.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
+
+    def save_to_file(self, app_name, data_type, data):
+        """Save the provided data to a JSON file."""
+        dir_path = f"./{app_name}/{data_type}/"
+        os.makedirs(dir_path, exist_ok=True)
+        file_path = os.path.join(dir_path, f"{data_type}.json")
+        with open(file_path, 'w') as f:
+            json.dump(data, f, indent=4)
+        print(f"Saved {data_type} for {app_name} to {file_path}")
+
+    def backup_configuration(self):
+        """Main method to backup configuration for all applications."""
+        applications = self.fetch_applications()
+
+        for app in applications:
+            app_id = app['id']
+            app_name = app['name']
+
+            print(f"Backing up configuration for {app_name}...")
+
+            # Fetch and save health rules
+            health_rules = self.fetch_health_rules(app_id)
+            self.save_to_file(app_name, "health_rules", health_rules)
+
+            # Fetch and save actions
+            actions = self.fetch_actions(app_id)
+            self.save_to_file(app_name, "actions", actions)
+
+            # Fetch and save policies
+            policies = self.fetch_policies(app_id)
+            self.save_to_file(app_name, "policies", policies)
+
+            # Optionally send a POST request with the collected details
+            self.send_backup_data(app_name, health_rules, actions, policies)
+
+    def send_backup_data(self, app_name, health_rules, actions, policies):
+        """Send a POST request with backup data."""
+        backup_data = {
+            "app_name": app_name,
+            "health_rules": health_rules,
+            "actions": actions,
+            "policies": policies,
+        }
+        # Define your endpoint here
+        endpoint_url = "https://example.com/api/backup"  # Change to your endpoint
+        response = requests.post(endpoint_url, json=backup_data)
+        if response.status_code == 200:
+            print(f"Successfully sent backup data for {app_name}.")
         else:
-            payload["affects"]["affectedDatabases"]["databaseScope"] = "ALL_DATABASES"
-
-        return payload
-    
-    def process_health_rule(self, health_rule_name, original_payload, health_rules, get_payload_func, success_msg, failed_msg):
- 
-        if len(self.databases) > 0:
-            for server in self.databases:
-                server_name = server["serverName"]
-                original_payload["name"] = health_rule_name + "-" + server_name
-                original_payload["affects"]["affectedDatabases"]["databases"] = [server]
-
-                # Generate new payload
-                new_payload = get_payload_func(data=original_payload)
-
-                # Append to health_rules list
-                health_rules.append({
-                    'hr_payload': json.dumps(new_payload),
-                    'success_msg': success_msg,
-                    'failed_msg': failed_msg
-                })
-        else:
-            # Handle the case for all databases
-            new_payload = get_payload_func(data=original_payload)
-            print(f"print nepayayload line *****474****: {new_payload}")
-
-
-            health_rules.append({
-                'hr_payload': json.dumps(new_payload),
-                'success_msg': success_msg,
-                'failed_msg': failed_msg
-            })
-
-    def create_health_rules(self, health_rules):
-
-        health_rules_name_list = []
-
-        for rule in health_rules:
-            # Parse the health rule name from the payload
-            rule_name = json.loads(rule['hr_payload'])
-            health_rules_name_list.append(rule_name['name'])
-        
-            print(f'******** Creating {rule_name["name"]} ********')
-            print('Payload:', rule['hr_payload'])
-
-            # Send the health rule creation request
-            appd_api_response = requests.post(
-                f'{self.base_url}/alerting/rest/v1/applications/15/health-rules',
-                data=rule['hr_payload'],
-                headers=self.headers
-            )
-
-            # Print response and success/failure message
-            print('Response:', appd_api_response.text)
-            if appd_api_response.status_code == 201:
-                print(rule['success_msg'])
-            else:
-                print(rule['failed_msg'])
-        return health_rules_name_list
-    def post_appd_action(self, payload):
-        url = self.base_url+'alerting/rest/v1/applications/15/actions'
-        print(f"*******line 511**** paylod: {payload}")
-        return post_request( url, self.headers, payload )
-    
-
-    def post_appd_policy(self, payload):
-        url = self.base_url+'alerting/rest/v1/applications/15/policies'
-        return post_request( url, self.headers, payload )
-
+            print(f"Failed to send backup data for {app_name}: {response.text}")
 
 def main():
-    """Script that generates the Health Rule for any databases in the AppDynamics."""
+    # Set up base URL and headers
+    base_url = "https://abcd-ent-{appd_env}-01.saas.appdynamics.com/controller"
+    headers = {
+        'Authorization': 'Bearer {token}',  # Replace with actual token
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
 
-    db_type = os.getenv("DB_TYPE")
-    business_name = os.getenv("BusinessName")
-    appd_env = os.getenv("DB_ENV")
-    databases = os.getenv("DATABASES")
-    account_name = os.getenv("ACCOUNT_NAME")
-    client_secret = os.getenv("CLIENT_SECRET")
-    client_id = os.getenv("CLIENT_ID")
-    user_email= os.getenv("USER_EMAIL")
-
-    appd_obj=AppDPolicyActionBuilder(business_name, db_type, "application_name", appd_env, databases, user_email, account_name, client_secret, client_id )
-
-    appd_obj.generate_access_token()
-
-    health_rule_name = business_name+' | '+ appd_env+' | '+ db_type
-
-    original_payload = appd_obj.create_payload(health_rule_name)
-    
-    health_rules = []
-
-    # DB Calls Per Minute
-    appd_obj.process_health_rule(
-        health_rule_name=health_rule_name,
-        original_payload=original_payload,
-        health_rules=health_rules,
-        get_payload_func=get_db_conn_per_min,
-        success_msg='******* SUCCESSFULLY CREATED DB CALLS PER MINUTE ********',
-        failed_msg='******* FAILED CREATING DB CALLS PER MINUTE ********'
-    )
-
-    # DB Time Spent in Executions
-    appd_obj.process_health_rule(
-        health_rule_name=health_rule_name,
-        original_payload=original_payload,
-        health_rules=health_rules,
-        get_payload_func=get_db_exec_time,
-        success_msg='******* SUCCESSFULLY CREATED DB EXECUTION TIME ********',
-        failed_msg='******* FAILED CREATING DB EXECUTION TIME ********'
-    )
-    # DB Get Connections per minute
-
-
-    # DB GC Current Block Receive Time
-    appd_obj.process_health_rule(
-        health_rule_name=health_rule_name,
-        original_payload=original_payload,
-        health_rules=health_rules,
-        get_payload_func=get_gc_block,
-        success_msg='******* SUCCESSFULLY CREATED DB EXECUTION TIME ********',
-        failed_msg='******* FAILED CREATING DB EXECUTION TIME ********'
-    )
-
-    # DB Availability
-
-    appd_obj.process_health_rule(
-        health_rule_name=health_rule_name,
-        original_payload=original_payload,
-        health_rules=health_rules,
-        get_payload_func=get_connections,
-        success_msg='******* SUCCESSFULLY CREATED DB EXECUTION TIME ********',
-        failed_msg='******* FAILED CREATING DB EXECUTION TIME ********'
-    )
-    # Db avaialibity 
-    appd_obj.process_health_rule(
-        health_rule_name=health_rule_name,
-        original_payload=original_payload,
-        health_rules=health_rules,
-        get_payload_func=get_availability,
-        success_msg='******* SUCCESSFULLY CREATED DB EXECUTION TIME ********',
-        failed_msg='******* FAILED CREATING DB EXECUTION TIME ********'
-    )
-    
-
-    health_rules_name_list = appd_obj.create_health_rules(
-        health_rules=health_rules
-    )
-    common_params = appd_obj.populate_params()
-    action_params = common_params
-    action_payload = render_template_json("useremailaction.j2", action_params)
-    print(f"printing action payload: {action_payload}")
-
-    policy_params = common_params
-    policy_params.update({'health_rules': health_rules_name_list})
-    print(f"*********line 604******* {policy_params}")
-    policy_payload = render_template_json("databasepolicy.j2", policy_params)
-    print( "calling action function ")
-    appd_obj.post_appd_action( action_payload )
-    print( "calling policy function ")
-    appd_obj.post_appd_policy(policy_payload)
-    
-    exit(0)
+    backup_tool = AppDConfigurationBackup(base_url, headers)
+    backup_tool.backup_configuration()
 
 if __name__ == '__main__':
     main()
